@@ -13,15 +13,18 @@ def connect_to_algo(connection_type=''):
     if connection_type == "indexer":
         # TODO: return an instance of the v2client indexer. This is used for checking payments for tx_id's
         algod_address = "https://testnet-algorand.api.purestake.io/idx2"
+
         return indexer.IndexerClient(algod_token, algod_address)
+
     else:
         # TODO: return an instance of the client for sending transactions
         # Tutorial Link: https://developer.algorand.org/tutorials/creating-python-transaction-purestake-api/
         algod_address = "https://testnet-algorand.api.purestake.io/ps2"
-        token = {'X-Api-key': algod_token}
-        algodclient = algod.AlgodClient(algod_token, algod_address, headers= token)
 
-    return algodclient
+        token = {'X-Api-key': algod_token}
+        algodClient = algod.AlgodClient(algod_token, algod_address, headers=token)
+
+    return algodClient
 
 
 def send_tokens_algo(acl, sender_sk, txes):
@@ -29,7 +32,6 @@ def send_tokens_algo(acl, sender_sk, txes):
 
     # TODO: You might want to adjust the first/last valid rounds in the suggested_params
     #       See guide for details
-
 
     # TODO: For each transaction, do the following:
     #       - Create the Payment transaction
@@ -41,13 +43,13 @@ def send_tokens_algo(acl, sender_sk, txes):
 
     tx_ids = []
     for i, tx in enumerate(txes):
-        send_amount = tx['amount']
-        receiver_pk = tx['receiver_pk']
+        # unsigned_tx = "Replace me with a transaction object"
         params.first += 1
         params.last += 1
-        unsigned_tx = transaction.PaymentTxn(sender_pk, params, receiver_pk, send_amount)
+        unsigned_tx = transaction.PaymentTxn(sender_pk, params, tx['receiver_pk'], tx['amount'])
 
         # TODO: Sign the transaction
+        # signed_tx = "Replace me with a SignedTransaction object"
         signed_tx = unsigned_tx.sign(sender_sk)
 
         try:
@@ -55,15 +57,15 @@ def send_tokens_algo(acl, sender_sk, txes):
 
             # TODO: Send the transaction to the testnet
 
+            # tx_id = "Replace me with the tx_id"
             tx_id = signed_tx.transaction.get_txid()
             tx_ids.append(tx_id)
             tx['tx_id'] = tx_id
             acl.send_transaction(signed_tx)
 
-            #txinfo = wait_for_confirmation_algo(acl, txid=tx_id)
+            # txinfo = wait_for_confirmation_algo(acl, txid=tx_id)
             wait_for_confirmation_algo(acl, txid=tx_id)
             print(f"Sent {tx['amount']} microalgo in transaction: {tx_id}\n")
-
         except Exception as e:
             print(e)
 
@@ -138,14 +140,15 @@ def send_tokens_eth(w3, sender_sk, txes):
     tx_ids = []
     for i, tx in enumerate(txes):
         # Your code here
+        # continue
         receiver_pk = tx['receiver_pk']
         tx_amount = tx['amount']
-        tx_dict = {'nonce': starting_nonce + i, 'gasPrice': w3.eth.gas_price, \
-                   'gas': w3.eth.estimate_gas({'from': sender_pk, 'to': receiver_pk, 'data': b'', 'amount': tx_amount}), \
+        tx_dict = {'nonce': i + starting_nonce,  # Locally update nonce
+                   'gasPrice': w3.eth.gas_price,
+                   'gas': w3.eth.estimate_gas({'from': sender_pk, 'to': receiver_pk, 'data': b'', 'amount': tx_amount}),
                    'to': receiver_pk, 'value': tx_amount, 'data': b''}
         txn_sign = w3.eth.sign_transaction(tx_dict, sender_sk)
         tx_id = w3.eth.send_raw_transaction(txn_sign.rawTransaction)
         tx_ids.append(tx_id)
         tx['tx_id'] = tx_id
-
     return tx_ids
