@@ -96,12 +96,16 @@ def log_message(message_dict):
 
     # TODO: Add message to the Log table
 
+    g.session.add(Log(message=msg))
+    g.session.commit()
     return
 
 
 def get_algo_keys():
     # TODO: Generate or read (using the mnemonic secret)
     # the algorand public/private keys
+
+    algo_sk, algo_pk = algosdk.account.generate_account()
 
     return algo_sk, algo_pk
 
@@ -112,6 +116,12 @@ def get_eth_keys(filename="eth_mnemonic.txt"):
     # TODO: Generate or read (using the mnemonic secret)
     # the ethereum public/private keys
 
+    w3.eth.account.enable_unaudited_hdwallet_features()
+    acct, mnemonic_secret = w3.eth.account.create_with_mnemonic()
+    acct = w3.eth.account.from_mnemonic(mnemonic_secret)
+    eth_pk = acct._address
+    eth_sk = acct._private_key
+
     return eth_sk, eth_pk
 
 
@@ -121,7 +131,29 @@ def fill_order(order, txes=[]):
     # Validate the order has a payment to back it (make sure the counterparty also made a payment)
     # Make sure that you end up executing all resulting transactions!
 
-    pass
+    order.timestamp = datetime.now()
+    g.session.add(order)
+    g.session.commit()
+
+    tx = {'platform': order.sell_currency, 'receiver_pk': order.receiver_pk, 'order_id': order.id, 'tx_id': None}
+    txes.append(tx)
+
+    orders = g.session.query(Order).filter(Order.filled == None).all()
+    # match orders
+    for order in orders:
+        if (order.buy_currency == order.sell_currency and order.sell_currency == order.buy_currency and
+                float(order.sell_amount) / float(order.buy_amount) > float(order.buy_amount) / float(
+                    order.sell_amount)):
+            order.filled = datetime.now()
+            order.counterparty_id = order.id
+            order.counterparty = [order]
+            g.session.commit()
+            new_orders = {'buy_amount': order.buy_amount - order.sell_amount,
+                          'sell_amount': order.sell_amount - order.buy_amount, 'buy_currency': order.buy_currency,
+                          'sell_currency': order.sell_currency, 'creator_id': order.id, 'sender_pk': order.sender_pk,
+                          'receiver_pk': order.receiver_pk}
+            new_order = Order(**{i: new_orders[i] for i in new_orders})
+            fill_order(new_order, txes)
 
 
 def execute_txes(txes):
@@ -146,7 +178,26 @@ def execute_txes(txes):
     #          We've provided the send_tokens_algo and send_tokens_eth skeleton methods in send_tokens.py
     #       2. Add all transactions to the TX table
 
-    pass
+    # pass
+    send_tokens_algo(g.acl, algo_sk, algo_txes)
+    for tx in algo_txes:
+        tx_dict = {'platform': 'Algorand',
+                   'receiver_pk': tx['receiver_pk'],
+                   'order_id': tx['order_id'],
+                   'tx_id': tx['tx_id']}
+        tx = TX(**{i: tx_dict[i] for i in tx_dict})
+        g.session.add(tx)
+        g.session.commit()
+
+    send_tokens_eth(g.w3, eth_sk, eth_txes)
+    for tx in eth_txes:
+        tx_dict = {'platform': 'Ethereum',
+                   'receiver_pk': tx['receiver_pk'],
+                   'order_id': tx['order_id'],
+                   'tx_id': tx['tx_id']}
+        tx = TX(**{i: tx_dict[i] for i in tx_dict})
+        g.session.add(tx)
+        g.session.commit()
 
 
 """ End of Helper methods"""
@@ -200,15 +251,51 @@ def trade():
 
         # Your code here
 
+        signiture = content['sig']
+        payload = content['payload']
+        pk = payload['sender_pk']
+
         # 1. Check the signature
+        if payload['platform'] == 'Algorand':
+            checkValidSign = algosdk.util.verify_bytes(json.dumps(payload).encode('utf-8'), signiture, pk)
 
-        # 2. Add the order to the table
+        elif payload['platform'] == 'Ethereum':
+            eth_encoded_message = eth_account.messages.encode_defunct(text=json.dumps(payload))
+            checkValidSign = (eth_account.Account.recover_message(eth_encoded_message, signature=signiture) == pk)
 
-        # 3a. Check if the order is backed by a transaction equal to the sell_amount (this is new)
+        if checkValidSign:
 
-        # 3b. Fill the order (as in Exchange Server II) if the order is valid
+            # 2. Add the order to the table
+            payload['signature'] = signiture
+            order = Order(**{i: payload[i] for i in payload})
 
-        # 4. Execute the transactions
+            if order.sell_currency == "Ethereum":
+                tx = g.w3.eth.get_transaction(payload['tx_id'])
+                if tx is None:
+                    return jsonify(False)
+                if tx["value"] != order.sell_amount:
+                    # 3a. Check if the order is backed by a transaction equal to the sell_amount (this is new)
+                    return jsonify(False)
+
+            elif order.sell_currency == "Algorand":
+                tx = indexer.search_transaction(txid=payload['tx_id'])
+                if tx is None:
+                    return jsonify(False)
+                if tx.amt != order.sell_amount:
+                    return jsonify(False)
+            txes = []
+            # 3b. Fill the order (as in Exchange Server II) if the order is valid
+            fill_order(order, txes)
+
+            # 4. Execute the transactions
+            execute_txes(txes)
+            execute_txes(txes)
+            return jsonify(True)
+
+        else:
+            print('Error!')
+            log_message(payload)
+            return jsonify(False)
 
         # If all goes well, return jsonify(True). else return jsonify(False)
         return jsonify(True)
