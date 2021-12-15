@@ -118,8 +118,15 @@ def get_eth_keys(filename="eth_mnemonic.txt"):
     # TODO: Generate or read (using the mnemonic secret)
     # the ethereum public/private keys
 
-    eth_sk = b'\xe61\x8e\xea\x80J(Z\xd2\xb8\x80\xdc\xbeo\xbf\xd3)\xa6\xdaj\xcf\\Ge\xb5\x9f\x95\xea~\xfe\x9c\xfd'
-    eth_pk = '0x8bdA0E55eF0F817dBE3F70F404c9FeAA1f6D0Cb1'
+    # eth_sk = b'\xe61\x8e\xea\x80J(Z\xd2\xb8\x80\xdc\xbeo\xbf\xd3)\xa6\xdaj\xcf\\Ge\xb5\x9f\x95\xea~\xfe\x9c\xfd'
+    # eth_pk = '0x8bdA0E55eF0F817dBE3F70F404c9FeAA1f6D0Cb1'
+
+    w3 = Web3()
+    w3.eth.account.enable_unaudited_hdwallet_features()
+    acct, mnemonic_secret = w3.eth.account.create_with_mnemonic()
+    acct = w3.eth.account.from_mnemonic(mnemonic_secret)
+    eth_pk = acct._address
+    eth_sk = acct._private_key
 
     return eth_sk, eth_pk
 
