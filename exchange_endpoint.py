@@ -14,6 +14,8 @@ import sys
 import traceback
 
 # TODO: make sure you implement connect_to_algo, send_tokens_algo, and send_tokens_eth
+from web3 import Web3
+
 from send_tokens import connect_to_algo, connect_to_eth, send_tokens_algo, send_tokens_eth
 
 from models import Base, Order, TX
@@ -111,16 +113,13 @@ def get_algo_keys():
 
 
 def get_eth_keys(filename="eth_mnemonic.txt"):
-    w3 = Web3()
+    # w3 = Web3()
 
     # TODO: Generate or read (using the mnemonic secret)
     # the ethereum public/private keys
 
-    w3.eth.account.enable_unaudited_hdwallet_features()
-    acct, mnemonic_secret = w3.eth.account.create_with_mnemonic()
-    acct = w3.eth.account.from_mnemonic(mnemonic_secret)
-    eth_pk = acct._address
-    eth_sk = acct._private_key
+    eth_sk = b'\xe61\x8e\xea\x80J(Z\xd2\xb8\x80\xdc\xbeo\xbf\xd3)\xa6\xdaj\xcf\\Ge\xb5\x9f\x95\xea~\xfe\x9c\xfd'
+    eth_pk = '0x8bdA0E55eF0F817dBE3F70F404c9FeAA1f6D0Cb1'
 
     return eth_sk, eth_pk
 
@@ -135,7 +134,10 @@ def fill_order(order, txes=[]):
     g.session.add(order)
     g.session.commit()
 
-    tx = {'platform': order.sell_currency, 'receiver_pk': order.receiver_pk, 'order_id': order.id, 'tx_id': None}
+    tx = {'platform': order.sell_currency,
+          'receiver_pk': order.receiver_pk,
+          'order_id': order.id,
+          'tx_id': None}
     txes.append(tx)
 
     orders = g.session.query(Order).filter(Order.filled == None).all()
@@ -255,22 +257,22 @@ def trade():
 
         # Your code here
 
-        signiture = content['sig']
+        sig = content['sig']
         payload = content['payload']
         pk = payload['sender_pk']
 
         # 1. Check the signature
         if payload['platform'] == 'Algorand':
-            checkValidSign = algosdk.util.verify_bytes(json.dumps(payload).encode('utf-8'), signiture, pk)
+            checkValidSign = algosdk.util.verify_bytes(json.dumps(payload).encode('utf-8'), sig, pk)
 
         elif payload['platform'] == 'Ethereum':
             eth_encoded_message = eth_account.messages.encode_defunct(text=json.dumps(payload))
-            checkValidSign = (eth_account.Account.recover_message(eth_encoded_message, signature=signiture) == pk)
+            checkValidSign = (eth_account.Account.recover_message(eth_encoded_message, signature=sig) == pk)
 
         if checkValidSign:
 
             # 2. Add the order to the table
-            payload['signature'] = signiture
+            payload['signature'] = sig
             order = Order(**{i: payload[i] for i in payload})
 
             if order.sell_currency == "Ethereum":
@@ -293,7 +295,6 @@ def trade():
 
             # 4. Execute the transactions
             execute_txes(txes)
-            execute_txes(txes)
             return jsonify(True)
 
         else:
@@ -310,7 +311,22 @@ def order_book():
     fields = ["buy_currency", "sell_currency", "buy_amount", "sell_amount", "signature", "tx_id", "receiver_pk"]
 
     # Same as before
-    pass
+    # pass
+    orders = g.session.query(Order).filter().all()
+    newList = []
+
+    for i in orders:
+        order = {'sender_pk': i.sender_pk,
+                 'receiver_pk': i.receiver_pk,
+                 'buy_currency': i.buy_currency,
+                 'sell_currency': i.sell_currency,
+                 'buy_amount': i.buy_amount,
+                 'sell_amount': i.sell_amount,
+                 'signature': i.signature}
+        newList.append(order)
+
+    result = {'data': newList}
+    return jsonify(result)
 
 
 if __name__ == '__main__':
